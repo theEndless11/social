@@ -89,6 +89,8 @@ module.exports = async function handler(req, res) {
             // Handle base64 photo data
             if (photo && photo.startsWith('data:image')) {
                 photoPath = photo;  // Store the base64 string directly
+            } else {
+                console.log('No photo provided, using null');
             }
 
             // Log values for debugging
