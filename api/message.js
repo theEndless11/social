@@ -3,9 +3,9 @@ const { publishToAbly } = require('../utils/ably');
 
 // Set CORS headers for all methods
 const setCorsHeaders = (res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Origin', '*');  // Allow any origin, change to specific domains if needed
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, OPTIONS');  // Allowable methods
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');  // Allow specific headers
 };
 
 // Serverless API handler for chat messages
@@ -14,7 +14,7 @@ module.exports = async function handler(req, res) {
 
     // Handle pre-flight OPTIONS request
     if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+        return res.status(200).end();  // Pre-flight request to check allowed methods and headers
     }
 
     try {
@@ -89,8 +89,6 @@ module.exports = async function handler(req, res) {
             // Handle base64 photo data
             if (photo && photo.startsWith('data:image')) {
                 photoPath = photo;  // Store the base64 string directly
-            } else {
-                console.log('No photo provided, using null');
             }
 
             // Log values for debugging
@@ -139,3 +137,4 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: 'Unexpected error occurred' });
     }
 };
+
