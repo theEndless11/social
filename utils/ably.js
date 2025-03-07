@@ -6,7 +6,7 @@ const ably = new Ably.Realtime('jrRn0w.bxfGbA:DwW2svyt4ahbcu6ZTgEdPge_9Gx3G3DSGO
 
 // Function to publish to a specific Ably channel
 function publishToAbly(event, data) {
-  const channel = ably.channels.get('your-channel-name');  // Replace with the dynamic channel name
+  const channel = ably.channels.get('joke');  // Replace with the dynamic channel name
   return channel.publish(event, data);
 }
 
