@@ -1,4 +1,4 @@
-const { promisePool } = require('../utils/db'); // Importing MySQL connection pool
+const pool = require('../utils/db'); // Importing MySQL connection pool
 const { publishToAbly } = require('../utils/ably');
 
 // Set CORS headers
