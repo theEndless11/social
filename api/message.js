@@ -67,35 +67,39 @@ module.exports = async function handler(req, res) {
                 return res.status(500).json({ error: 'Failed to fetch messages from the database' });
             }
         }
-        if (req.method === 'DELETE') {
-            const { messageId, username, chatWith } = req.body;
+     // Handle DELETE request to delete a message from the database
+if (req.method === 'DELETE') {
+    const { messageId, username, chatWith } = req.body;
 
-            if (!messageId || !username || !chatWith) {
-                return res.status(400).json({ error: 'Missing required fields: messageId, username, chatWith' });
-            }
+    console.log('DELETE request received with messageId:', messageId, 'username:', username, 'chatWith:', chatWith);
 
-            const usernameLower = username.toLowerCase();
-            const chatWithLower = chatWith.toLowerCase();
+    if (!messageId || !username || !chatWith) {
+        console.error('Missing fields in DELETE request');
+        return res.status(400).json({ error: 'Missing required fields: messageId, username, chatWith' });
+    }
 
-            const sql = `
-                DELETE FROM messages 
-                WHERE id = ? AND ((username = ? AND chatwith = ?) OR (username = ? AND chatwith = ?))
-            `;
+    // Ensure both username and chatWith are in lowercase to avoid case sensitivity issues
+    const usernameLower = username.toLowerCase();
+    const chatWithLower = chatWith.toLowerCase();
 
-            try {
-                const [result] = await promisePool.execute(sql, [messageId, usernameLower, chatWithLower, chatWithLower, usernameLower]);
+    // Delete the message from the database
+    const sql = `DELETE FROM messages WHERE id = $1 AND (username = $2 AND chatwith = $3) OR (username = $3 AND chatwith = $2)`;
+    try {
+        const result = await pool.query(sql, [messageId, usernameLower, chatWithLower]);
 
-                if (result.affectedRows > 0) {
-                    console.log(`✅ Message ID ${messageId} deleted`);
-                    return res.status(200).json({ success: true });
-                } else {
-                    return res.status(404).json({ error: 'Message not found' });
-                }
-            } catch (error) {
-                console.error('❌ Error deleting message:', error);
-                return res.status(500).json({ error: 'Database error while deleting message' });
-            }
+        if (result.rowCount > 0) {
+            console.log('Message deleted from the database');
+            return res.status(200).json({ success: true });
+        } else {
+            console.error('Message not found or could not be deleted');
+            return res.status(404).json({ error: 'Message not found' });
         }
+    } catch (err) {
+        console.error('Error deleting message from database:', err);
+        return res.status(500).json({ error: 'Failed to delete message from the database' });
+    }
+}
+
 
         // Handle POST request to send a message (with optional photo)
         if (req.method === 'POST') {
