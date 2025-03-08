@@ -67,40 +67,7 @@ module.exports = async function handler(req, res) {
                 return res.status(500).json({ error: 'Failed to fetch messages from the database' });
             }
         }
-     // Handle DELETE request to delete a message from the database
-if (req.method === 'DELETE') {
-    const { messageId, username, chatWith } = req.body;
-
-    console.log('DELETE request received with messageId:', messageId, 'username:', username, 'chatWith:', chatWith);
-
-    if (!messageId || !username || !chatWith) {
-        console.error('Missing fields in DELETE request');
-        return res.status(400).json({ error: 'Missing required fields: messageId, username, chatWith' });
-    }
-
-    // Ensure both username and chatWith are in lowercase to avoid case sensitivity issues
-    const usernameLower = username.toLowerCase();
-    const chatWithLower = chatWith.toLowerCase();
-
-    // Delete the message from the database
-    const sql = `DELETE FROM messages WHERE id = $1 AND (username = $2 AND chatwith = $3) OR (username = $3 AND chatwith = $2)`;
-    try {
-        const result = await pool.query(sql, [messageId, usernameLower, chatWithLower]);
-
-        if (result.rowCount > 0) {
-            console.log('Message deleted from the database');
-            return res.status(200).json({ success: true });
-        } else {
-            console.error('Message not found or could not be deleted');
-            return res.status(404).json({ error: 'Message not found' });
-        }
-    } catch (err) {
-        console.error('Error deleting message from database:', err);
-        return res.status(500).json({ error: 'Failed to delete message from the database' });
-    }
-}
-
-
+   
         // Handle POST request to send a message (with optional photo)
         if (req.method === 'POST') {
             const { username, chatWith, message, photo } = req.body;
