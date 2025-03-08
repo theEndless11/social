@@ -12,14 +12,61 @@ const setCorsHeaders = (res) => {
 module.exports = async function handler(req, res) {
     setCorsHeaders(res);
 
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+  if (req.method === 'OPTIONS') {
+        return res.status(200).end();  
     }
 
     try {
         console.log(`[${req.method}] Request received at: ${new Date().toISOString()}`);
 
-        // DELETE: Remove a message
+        // Handle GET request to fetch messages
+        if (req.method === 'GET') {
+            const { username, chatWith } = req.query;
+
+            if (!username || !chatWith) {
+                console.error('❌ Missing query parameters: username or chatWith');
+                return res.status(400).json({ error: 'Missing required query parameters: username or chatWith' });
+            }
+
+            const usernameLower = username.toLowerCase();
+            const chatWithLower = chatWith.toLowerCase();
+
+            console.log(`📩 Fetching messages for username: ${usernameLower} ↔️ chatWith: ${chatWithLower}`);
+
+            // Query to fetch messages between two users
+            const sql = `
+                SELECT * FROM messages 
+                WHERE (username = $1 AND chatwith = $2) OR (username = $3 AND chatwith = $4) 
+                ORDER BY timestamp
+            `;
+
+            try {
+                const result = await pool.query(sql, [usernameLower, chatWithLower, chatWithLower, usernameLower]);
+                const messages = result.rows;
+
+                if (messages.length > 0) {
+                    console.log(`✅ Fetched ${messages.length} messages`);
+
+                    const formattedMessages = messages.map(message => ({
+                        id: message.id,
+                        username: message.username,
+                        chatWith: message.chatwith,
+                        message: message.message,
+                        photo: message.photo,
+                        timestamp: message.timestamp,
+                        side: message.username === usernameLower ? 'user' : 'other',
+                    }));
+
+                    return res.status(200).json({ messages: formattedMessages });
+                } else {
+                    console.log('⚠️ No messages found for this chat');
+                    return res.status(404).json({ error: 'No messages found for this chat' });
+                }
+            } catch (error) {
+                console.error('❌ Error fetching messages from database:', error);
+                return res.status(500).json({ error: 'Failed to fetch messages from the database' });
+            }
+        }
         if (req.method === 'DELETE') {
             const { messageId, username, chatWith } = req.body;
 
@@ -50,52 +97,14 @@ module.exports = async function handler(req, res) {
             }
         }
 
-        // GET: Fetch messages
-        if (req.method === 'GET') {
-            const { username, chatWith } = req.query;
-
-            if (!username || !chatWith) {
-                return res.status(400).json({ error: 'Missing required query parameters: username or chatWith' });
-            }
-
-            const usernameLower = username.toLowerCase();
-            const chatWithLower = chatWith.toLowerCase();
-
-            const sql = `
-                SELECT * FROM messages 
-                WHERE (username = ? AND chatwith = ?) OR (username = ? AND chatwith = ?) 
-                ORDER BY timestamp
-            `;
-
-            try {
-                const [messages] = await promisePool.execute(sql, [usernameLower, chatWithLower, chatWithLower, usernameLower]);
-
-                if (messages.length > 0) {
-                    const formattedMessages = messages.map(message => ({
-                        id: message.id,
-                        username: message.username,
-                        chatWith: message.chatwith,
-                        message: message.message,
-                        photo: message.photo,
-                        timestamp: message.timestamp,
-                        side: message.username === usernameLower ? 'user' : 'other', 
-                    }));
-
-                    return res.status(200).json({ messages: formattedMessages });
-                } else {
-                    return res.status(404).json({ error: 'No messages found for this chat' });
-                }
-            } catch (error) {
-                console.error('❌ Error fetching messages:', error);
-                return res.status(500).json({ error: 'Database error while fetching messages' });
-            }
-        }
-
-        // POST: Send a new message
+        // Handle POST request to send a message (with optional photo)
         if (req.method === 'POST') {
             const { username, chatWith, message, photo } = req.body;
 
+            console.log(`📩 POST request received: ${username} → ${chatWith}, Message: "${message}"`);
+
             if (!username || !chatWith || (!message && !photo)) {
+                console.error('❌ Missing fields in POST request');
                 return res.status(400).json({ error: 'Missing required fields: username, chatWith, message/photo' });
             }
 
@@ -104,23 +113,30 @@ module.exports = async function handler(req, res) {
             let photoPath = null;
 
             if (photo && photo.startsWith('data:image')) {
-                photoPath = photo; 
+                photoPath = photo;  // Store the base64 string directly
             }
 
+            // Insert the message into the database
             const sql = `
                 INSERT INTO messages (username, chatwith, message, photo, timestamp) 
-                VALUES (?, ?, ?, ?, NOW())
+                VALUES ($1, $2, $3, $4, NOW())
             `;
 
             try {
-                const [result] = await promisePool.execute(sql, [usernameLower, chatWithLower, message || '', photoPath || null]);
+                const result = await pool.query(sql, [usernameLower, chatWithLower, message || '', photoPath || null]);
 
-                if (result.affectedRows > 0) {
+                if (result.rowCount > 0) {
                     console.log('✅ Message inserted successfully');
 
-                    const messageData = { username: usernameLower, chatWith: chatWithLower, message, photo: photoPath };
+                    const messageData = {
+                        username: usernameLower,
+                        chatWith: chatWithLower,
+                        message,
+                        photo: photoPath
+                    };
 
                     try {
+                        console.log('📡 Publishing to Ably:', messageData);
                         await publishToAbly(`chat-${chatWithLower}-${usernameLower}`, 'newMessage', messageData);
                         console.log('✅ Message published to Ably');
                     } catch (error) {
@@ -130,10 +146,11 @@ module.exports = async function handler(req, res) {
 
                     return res.status(200).json({ message: 'Message sent successfully' });
                 } else {
+                    console.error('❌ Message insertion failed');
                     return res.status(500).json({ error: 'Failed to insert message into the database' });
                 }
             } catch (error) {
-                console.error('❌ Error inserting message:', error);
+                console.error('❌ Error inserting message into database:', error);
                 return res.status(500).json({ error: 'Database error while inserting message' });
             }
         }
@@ -144,4 +161,3 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: 'Unexpected server error' });
     }
 };
-
