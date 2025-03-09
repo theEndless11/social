@@ -19,54 +19,91 @@ module.exports = async function handler(req, res) {
     try {
         console.log(`[${req.method}] Request received at: ${new Date().toISOString()}`);
 
-        // Handle GET request to fetch messages
-        if (req.method === 'GET') {
-            const { username, chatWith } = req.query;
+// Handle GET request to fetch messages and their seen status
+if (req.method === 'GET') {
+    const { username, chatWith } = req.query;
 
-            if (!username || !chatWith) {
-                console.error('❌ Missing query parameters: username or chatWith');
-                return res.status(400).json({ error: 'Missing required query parameters: username or chatWith' });
-            }
+    if (!username || !chatWith) {
+        console.error('❌ Missing query parameters: username or chatWith');
+        return res.status(400).json({ error: 'Missing required query parameters: username or chatWith' });
+    }
 
-            const usernameLower = username.toLowerCase();
-            const chatWithLower = chatWith.toLowerCase();
+    const usernameLower = username.toLowerCase();
+    const chatWithLower = chatWith.toLowerCase();
 
-            console.log(`📩 Fetching messages for username: ${usernameLower} ↔️ chatWith: ${chatWithLower}`);
+    console.log(`📩 Fetching messages for username: ${usernameLower} ↔️ chatWith: ${chatWithLower}`);
 
-            // Query to fetch messages between two users
-            const sql = `
-                SELECT * FROM messages 
-                WHERE (username = $1 AND chatwith = $2) OR (username = $3 AND chatwith = $4) 
-                ORDER BY timestamp
-            `;
+    // Query to fetch messages and their seen status
+    const sql = `
+        SELECT id, username, chatwith, message, photo, timestamp, seen
+        FROM messages
+        WHERE (username = $1 AND chatwith = $2) OR (username = $2 AND chatwith = $1)
+        ORDER BY timestamp
+    `;
 
-            try {
-                const result = await pool.query(sql, [usernameLower, chatWithLower, chatWithLower, usernameLower]);
-                const messages = result.rows;
+    try {
+        const result = await pool.query(sql, [usernameLower, chatWithLower]);
+        const messages = result.rows;
 
-                if (messages.length > 0) {
-                    console.log(`✅ Fetched ${messages.length} messages`);
+        if (messages.length > 0) {
+            console.log(`✅ Fetched ${messages.length} messages`);
 
-                    const formattedMessages = messages.map(message => ({
-                        id: message.id,
-                        username: message.username,
-                        chatWith: message.chatwith,
-                        message: message.message,
-                        photo: message.photo,
-                        timestamp: message.timestamp,
-                        side: message.username === usernameLower ? 'user' : 'other',
-                    }));
+            const formattedMessages = messages.map(message => ({
+                id: message.id,
+                username: message.username,
+                chatWith: message.chatwith,
+                message: message.message,
+                photo: message.photo,
+                timestamp: message.timestamp,
+                seen: message.seen,  // Directly fetched 'seen' field
+                side: message.username === usernameLower ? 'user' : 'other',
+            }));
 
-                    return res.status(200).json({ messages: formattedMessages });
-                } else {
-                    console.log('⚠️ No messages found for this chat');
-                    return res.status(404).json({ error: 'No messages found for this chat' });
-                }
-            } catch (error) {
-                console.error('❌ Error fetching messages from database:', error);
-                return res.status(500).json({ error: 'Failed to fetch messages from the database' });
-            }
+            return res.status(200).json({ messages: formattedMessages });
+        } else {
+            console.log('⚠️ No messages found for this chat');
+            return res.status(404).json({ error: 'No messages found for this chat' });
         }
+    } catch (error) {
+        console.error('❌ Error fetching messages from database:', error);
+        return res.status(500).json({ error: 'Failed to fetch messages from the database' });
+    }
+}
+
+        // Handle PUT request to mark a message as seen
+if (req.method === 'PUT' && req.query.action === 'messageSeen') {
+    const { messageId, seenBy } = req.body;
+
+    if (!messageId || !seenBy) {
+        console.error('❌ Missing required fields: messageId or seenBy');
+        return res.status(400).json({ error: 'Missing required fields: messageId or seenBy' });
+    }
+
+    const messageIdNum = parseInt(messageId);
+
+    // Update the message's seen status in the database
+    const sql = `
+        UPDATE messages
+        SET seen = TRUE
+        WHERE id = $1 AND chatwith = $2
+    `;
+
+    try {
+        const result = await pool.query(sql, [messageIdNum, seenBy]);
+
+        if (result.rowCount > 0) {
+            console.log(`✅ Acknowledgment for message ID ${messageIdNum} marked as seen by ${seenBy}`);
+            return res.status(200).json({ message: 'Message seen acknowledgment saved successfully' });
+        } else {
+            console.error('❌ Failed to update message seen status');
+            return res.status(500).json({ error: 'Failed to update message seen status in the database' });
+        }
+    } catch (error) {
+        console.error('❌ Error updating seen status in database:', error);
+        return res.status(500).json({ error: 'Failed to update seen status in the database' });
+    }
+}
+
    
         // Handle POST request to send a message (with optional photo)
         if (req.method === 'POST') {
