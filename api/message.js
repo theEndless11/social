@@ -95,7 +95,7 @@ if (req.method === 'PUT') {
     try {
         const result = await pool.query(sql, [messageIdNum, seenBy]);
 
-        if (result.rowCount > 0) {
+        if (result.rowCount > 0) {  // For PostgreSQL, rowCount will indicate how many rows were updated
             console.log(`✅ Acknowledgment for message ID ${messageIdNum} marked as seen by ${seenBy}`);
             return res.status(200).json({ message: 'Message seen acknowledgment saved successfully' });
         } else {
@@ -107,6 +107,7 @@ if (req.method === 'PUT') {
         return res.status(500).json({ error: 'Failed to update seen status in the database' });
     }
 }
+
 
 
         // Handle POST request to send a message (with optional photo)
