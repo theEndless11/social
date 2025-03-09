@@ -3,8 +3,8 @@ const { publishToAbly } = require('../utils/ably');
 
 // Set CORS headers
 const setCorsHeaders = (res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Origin', '*'); 
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, PUT, OPTIONS');  // Add PUT to the allowed methods
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 };
 
