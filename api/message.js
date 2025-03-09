@@ -3,8 +3,8 @@ const { publishToAbly } = require('../utils/ably');
 
 // Set CORS headers
 const setCorsHeaders = (res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*'); 
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 };
 
@@ -12,100 +12,99 @@ const setCorsHeaders = (res) => {
 module.exports = async function handler(req, res) {
     setCorsHeaders(res);
 
-  if (req.method === 'OPTIONS') {
-        return res.status(200).end();  
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
     }
 
     try {
         console.log(`[${req.method}] Request received at: ${new Date().toISOString()}`);
 
-// Handle GET request to fetch messages and their seen status
-if (req.method === 'GET') {
-    const { username, chatWith } = req.query;
+        // 🔹 Handle GET request to fetch messages and their seen status
+        if (req.method === 'GET') {
+            const { username, chatWith } = req.query;
 
-    if (!username || !chatWith) {
-        console.error('❌ Missing query parameters: username or chatWith');
-        return res.status(400).json({ error: 'Missing required query parameters: username or chatWith' });
-    }
+            if (!username || !chatWith) {
+                console.error('❌ Missing query parameters: username or chatWith');
+                return res.status(400).json({ error: 'Missing required query parameters: username or chatWith' });
+            }
 
-    const usernameLower = username.toLowerCase();
-    const chatWithLower = chatWith.toLowerCase();
+            const usernameLower = username.toLowerCase();
+            const chatWithLower = chatWith.toLowerCase();
 
-    console.log(`📩 Fetching messages for username: ${usernameLower} ↔️ chatWith: ${chatWithLower}`);
+            console.log(`📩 Fetching messages for: ${usernameLower} ↔️ ${chatWithLower}`);
 
-    // Query to fetch messages and their seen status
-    const sql = `
-        SELECT id, username, chatwith, message, photo, timestamp, seen
-        FROM messages
-        WHERE (username = $1 AND chatwith = $2) OR (username = $2 AND chatwith = $1)
-        ORDER BY timestamp
-    `;
+            const sql = `
+                SELECT id, username, chatwith, message, photo, timestamp, seen
+                FROM messages
+                WHERE (username = ? AND chatwith = ?) OR (username = ? AND chatwith = ?)
+                ORDER BY timestamp
+            `;
 
-    try {
-        const result = await pool.query(sql, [usernameLower, chatWithLower]);
-        const messages = result.rows;
+            try {
+                const [messages] = await pool.execute(sql, [usernameLower, chatWithLower, chatWithLower, usernameLower]);
 
-        if (messages.length > 0) {
-            console.log(`✅ Fetched ${messages.length} messages`);
+                if (messages.length > 0) {
+                    console.log(`✅ Fetched ${messages.length} messages`);
 
-            const formattedMessages = messages.map(message => ({
-                id: message.id,
-                username: message.username,
-                chatWith: message.chatwith,
-                message: message.message,
-                photo: message.photo,
-                timestamp: message.timestamp,
-                seen: message.seen,  // Directly fetched 'seen' field
-                side: message.username === usernameLower ? 'user' : 'other',
-            }));
+                    const formattedMessages = messages.map(msg => ({
+                        id: msg.id,
+                        username: msg.username,
+                        chatWith: msg.chatwith,
+                        message: msg.message,
+                        photo: msg.photo,
+                        timestamp: msg.timestamp,
+                        seen: msg.seen,
+                        side: msg.username === usernameLower ? 'user' : 'other',
+                    }));
 
-            return res.status(200).json({ messages: formattedMessages });
-        } else {
-            console.log('⚠️ No messages found for this chat');
-            return res.status(404).json({ error: 'No messages found for this chat' });
+                    return res.status(200).json({ messages: formattedMessages });
+                } else {
+                    console.log('⚠️ No messages found for this chat');
+                    return res.status(404).json({ error: 'No messages found for this chat' });
+                }
+            } catch (error) {
+                console.error('❌ Error fetching messages:', error);
+                return res.status(500).json({ error: 'Database error while fetching messages' });
+            }
         }
-    } catch (error) {
-        console.error('❌ Error fetching messages from database:', error);
-        return res.status(500).json({ error: 'Failed to fetch messages from the database' });
-    }
-}
 
-        // Handle PUT request to mark a message as seen
-if (req.method === 'PUT' && req.query.action === 'messageSeen') {
-    const { messageId, seenBy } = req.body;
+        // 🔹 Handle PUT request to mark a message as seen
+        if (req.method === 'PUT' && req.query.action === 'messageSeen') {
+            const { messageId, seenBy } = req.body;
 
-    if (!messageId || !seenBy) {
-        console.error('❌ Missing required fields: messageId or seenBy');
-        return res.status(400).json({ error: 'Missing required fields: messageId or seenBy' });
-    }
+            if (!messageId || !seenBy) {
+                console.error('❌ Missing fields: messageId or seenBy');
+                return res.status(400).json({ error: 'Missing required fields: messageId or seenBy' });
+            }
 
-    const messageIdNum = parseInt(messageId);
+            const messageIdNum = parseInt(messageId, 10);
+            if (isNaN(messageIdNum)) {
+                return res.status(400).json({ error: 'Invalid messageId' });
+            }
 
-    // Update the message's seen status in the database
-    const sql = `
-        UPDATE messages
-        SET seen = TRUE
-        WHERE id = $1 AND chatwith = $2
-    `;
+            const sql = `
+                UPDATE messages
+                SET seen = TRUE
+                WHERE id = ? AND chatwith = ?
+            `;
 
-    try {
-        const result = await pool.query(sql, [messageIdNum, seenBy]);
+            try {
+                const [result] = await pool.execute(sql, [messageIdNum, seenBy]);
 
-        if (result.rowCount > 0) {
-            console.log(`✅ Acknowledgment for message ID ${messageIdNum} marked as seen by ${seenBy}`);
-            return res.status(200).json({ message: 'Message seen acknowledgment saved successfully' });
-        } else {
-            console.error('❌ Failed to update message seen status');
-            return res.status(500).json({ error: 'Failed to update message seen status in the database' });
+                if (result.affectedRows > 0) {
+                    console.log(`✅ Message ID ${messageIdNum} marked as seen by ${seenBy}`);
+                    return res.status(200).json({ message: 'Message seen acknowledgment saved successfully' });
+                } else {
+                    console.error('❌ Failed to update message seen status');
+                    return res.status(404).json({ error: 'Message not found or not updated' });
+                }
+            } catch (error) {
+                console.error('❌ Error updating seen status:', error);
+                return res.status(500).json({ error: 'Database error while updating seen status' });
+            }
         }
-    } catch (error) {
-        console.error('❌ Error updating seen status in database:', error);
-        return res.status(500).json({ error: 'Failed to update seen status in the database' });
-    }
-}
 
-   
-        // Handle POST request to send a message (with optional photo)
+        // 🔹 Handle POST request to send a message
         if (req.method === 'POST') {
             const { username, chatWith, message, photo } = req.body;
 
@@ -121,19 +120,18 @@ if (req.method === 'PUT' && req.query.action === 'messageSeen') {
             let photoPath = null;
 
             if (photo && photo.startsWith('data:image')) {
-                photoPath = photo;  // Store the base64 string directly
+                photoPath = photo;
             }
 
-            // Insert the message into the database
             const sql = `
-                INSERT INTO messages (username, chatwith, message, photo, timestamp) 
-                VALUES ($1, $2, $3, $4, NOW())
+                INSERT INTO messages (username, chatwith, message, photo, timestamp, seen) 
+                VALUES (?, ?, ?, ?, NOW(), FALSE)
             `;
 
             try {
-                const result = await pool.query(sql, [usernameLower, chatWithLower, message || '', photoPath || null]);
+                const [result] = await pool.execute(sql, [usernameLower, chatWithLower, message || '', photoPath || null]);
 
-                if (result.rowCount > 0) {
+                if (result.affectedRows > 0) {
                     console.log('✅ Message inserted successfully');
 
                     const messageData = {
@@ -152,13 +150,13 @@ if (req.method === 'PUT' && req.query.action === 'messageSeen') {
                         return res.status(500).json({ error: 'Failed to publish message to Ably' });
                     }
 
-                    return res.status(200).json({ message: 'Message sent successfully' });
+                    return res.status(201).json({ message: 'Message sent successfully' });
                 } else {
                     console.error('❌ Message insertion failed');
                     return res.status(500).json({ error: 'Failed to insert message into the database' });
                 }
             } catch (error) {
-                console.error('❌ Error inserting message into database:', error);
+                console.error('❌ Error inserting message:', error);
                 return res.status(500).json({ error: 'Database error while inserting message' });
             }
         }
