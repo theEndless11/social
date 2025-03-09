@@ -70,7 +70,7 @@ module.exports = async function handler(req, res) {
             }
         }
 // Handle PUT request to mark a message as seen
-if (req.method === 'PUT' && req.query.action === 'messageSeen') {
+if (req.method === 'PUT') {
     const { messageId, seenBy } = req.body;
 
     if (!messageId || !seenBy) {
@@ -78,7 +78,12 @@ if (req.method === 'PUT' && req.query.action === 'messageSeen') {
         return res.status(400).json({ error: 'Missing required fields: messageId or seenBy' });
     }
 
-    const messageIdNum = parseInt(messageId);
+    const messageIdNum = parseInt(messageId, 10);
+
+    // Validate the parsed messageId
+    if (isNaN(messageIdNum)) {
+        return res.status(400).json({ error: 'Invalid messageId format' });
+    }
 
     // Update the message's seen status in the database
     const sql = `
@@ -95,7 +100,7 @@ if (req.method === 'PUT' && req.query.action === 'messageSeen') {
             return res.status(200).json({ message: 'Message seen acknowledgment saved successfully' });
         } else {
             console.error('❌ Failed to update message seen status');
-            return res.status(500).json({ error: 'Failed to update message seen status in the database' });
+            return res.status(404).json({ error: 'Message not found or not sent to the specified user' });
         }
     } catch (error) {
         console.error('❌ Error updating seen status in database:', error);
