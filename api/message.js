@@ -69,40 +69,40 @@ module.exports = async function handler(req, res) {
                 return res.status(500).json({ error: 'Failed to fetch messages from the database' });
             }
         }
+// Handle PUT request to mark a message as seen
+if (req.method === 'PUT' && req.query.action === 'messageSeen') {
+    const { messageId, seenBy } = req.body;
 
-        // Handle PUT request to mark a message as seen
-        if (req.method === 'PUT' && req.query.action === 'messageSeen') {
-            const { messageId, seenBy } = req.body;
+    if (!messageId || !seenBy) {
+        console.error('❌ Missing required fields: messageId or seenBy');
+        return res.status(400).json({ error: 'Missing required fields: messageId or seenBy' });
+    }
 
-            if (!messageId || !seenBy) {
-                console.error('❌ Missing required fields: messageId or seenBy');
-                return res.status(400).json({ error: 'Missing required fields: messageId or seenBy' });
-            }
+    const messageIdNum = parseInt(messageId);
 
-            const messageIdNum = parseInt(messageId);
+    // Update the message's seen status in the database
+    const sql = `
+        UPDATE messages
+        SET seen = TRUE
+        WHERE id = $1 AND chatwith = $2;
+    `;
 
-            // Update the message's seen status in the database
-            const sql = `
-                UPDATE messages
-                SET seen = TRUE
-                WHERE id = $1 AND chatwith = $2;
-            `;
+    try {
+        const result = await pool.query(sql, [messageIdNum, seenBy]);
 
-            try {
-                const result = await pool.query(sql, [messageIdNum, seenBy]);
-
-                if (result.rowCount > 0) {
-                    console.log(`✅ Acknowledgment for message ID ${messageIdNum} marked as seen by ${seenBy}`);
-                    return res.status(200).json({ message: 'Message seen acknowledgment saved successfully' });
-                } else {
-                    console.error('❌ Failed to update message seen status');
-                    return res.status(500).json({ error: 'Failed to update message seen status in the database' });
-                }
-            } catch (error) {
-                console.error('❌ Error updating seen status in database:', error);
-                return res.status(500).json({ error: 'Failed to update seen status in the database' });
-            }
+        if (result.rowCount > 0) {
+            console.log(`✅ Acknowledgment for message ID ${messageIdNum} marked as seen by ${seenBy}`);
+            return res.status(200).json({ message: 'Message seen acknowledgment saved successfully' });
+        } else {
+            console.error('❌ Failed to update message seen status');
+            return res.status(500).json({ error: 'Failed to update message seen status in the database' });
         }
+    } catch (error) {
+        console.error('❌ Error updating seen status in database:', error);
+        return res.status(500).json({ error: 'Failed to update seen status in the database' });
+    }
+}
+
 
         // Handle POST request to send a message (with optional photo)
         if (req.method === 'POST') {
