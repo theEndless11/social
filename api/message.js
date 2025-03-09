@@ -4,7 +4,7 @@ const { publishToAbly } = require('../utils/ably');
 // Set CORS headers
 const setCorsHeaders = (res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 };
 
@@ -13,13 +13,13 @@ module.exports = async function handler(req, res) {
     setCorsHeaders(res);
 
     if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+        return res.status(200).end();  
     }
 
     try {
         console.log(`[${req.method}] Request received at: ${new Date().toISOString()}`);
 
-        // 🔹 Handle GET request to fetch messages and their seen status
+        // Handle GET request to fetch messages and their seen status
         if (req.method === 'GET') {
             const { username, chatWith } = req.query;
 
@@ -31,30 +31,32 @@ module.exports = async function handler(req, res) {
             const usernameLower = username.toLowerCase();
             const chatWithLower = chatWith.toLowerCase();
 
-            console.log(`📩 Fetching messages for: ${usernameLower} ↔️ ${chatWithLower}`);
+            console.log(`📩 Fetching messages for username: ${usernameLower} ↔️ chatWith: ${chatWithLower}`);
 
+            // Query to fetch messages and their seen status
             const sql = `
                 SELECT id, username, chatwith, message, photo, timestamp, seen
                 FROM messages
-                WHERE (username = ? AND chatwith = ?) OR (username = ? AND chatwith = ?)
-                ORDER BY timestamp
+                WHERE (username = $1 AND chatwith = $2) OR (username = $2 AND chatwith = $1)
+                ORDER BY timestamp;
             `;
 
             try {
-                const [messages] = await pool.execute(sql, [usernameLower, chatWithLower, chatWithLower, usernameLower]);
+                const result = await pool.query(sql, [usernameLower, chatWithLower]);
+                const messages = result.rows;
 
                 if (messages.length > 0) {
                     console.log(`✅ Fetched ${messages.length} messages`);
 
-                    const formattedMessages = messages.map(msg => ({
-                        id: msg.id,
-                        username: msg.username,
-                        chatWith: msg.chatwith,
-                        message: msg.message,
-                        photo: msg.photo,
-                        timestamp: msg.timestamp,
-                        seen: msg.seen,
-                        side: msg.username === usernameLower ? 'user' : 'other',
+                    const formattedMessages = messages.map(message => ({
+                        id: message.id,
+                        username: message.username,
+                        chatWith: message.chatwith,
+                        message: message.message,
+                        photo: message.photo,
+                        timestamp: message.timestamp,
+                        seen: message.seen,  // Directly fetched 'seen' field
+                        side: message.username === usernameLower ? 'user' : 'other',
                     }));
 
                     return res.status(200).json({ messages: formattedMessages });
@@ -63,13 +65,13 @@ module.exports = async function handler(req, res) {
                     return res.status(404).json({ error: 'No messages found for this chat' });
                 }
             } catch (error) {
-                console.error('❌ Error fetching messages:', error);
-                return res.status(500).json({ error: 'Database error while fetching messages' });
+                console.error('❌ Error fetching messages from database:', error);
+                return res.status(500).json({ error: 'Failed to fetch messages from the database' });
             }
         }
 
-        // 🔹 Handle PATCH request to update the 'seen' status
-        if (req.method === 'PATCH' && req.query.action === 'messageSeen') {
+        // Handle PUT request to mark a message as seen
+        if (req.method === 'PUT' && req.query.action === 'messageSeen') {
             const { messageId, seenBy } = req.body;
 
             if (!messageId || !seenBy) {
@@ -77,34 +79,32 @@ module.exports = async function handler(req, res) {
                 return res.status(400).json({ error: 'Missing required fields: messageId or seenBy' });
             }
 
-            const messageIdNum = parseInt(messageId, 10);
-            if (isNaN(messageIdNum)) {
-                return res.status(400).json({ error: 'Invalid messageId' });
-            }
+            const messageIdNum = parseInt(messageId);
 
+            // Update the message's seen status in the database
             const sql = `
                 UPDATE messages
                 SET seen = TRUE
-                WHERE id = ? AND chatwith = ?
+                WHERE id = $1 AND chatwith = $2;
             `;
 
             try {
-                const [result] = await pool.execute(sql, [messageIdNum, seenBy]);
+                const result = await pool.query(sql, [messageIdNum, seenBy]);
 
-                if (result.affectedRows > 0) {
-                    console.log(`✅ Message ID ${messageIdNum} marked as seen by ${seenBy}`);
+                if (result.rowCount > 0) {
+                    console.log(`✅ Acknowledgment for message ID ${messageIdNum} marked as seen by ${seenBy}`);
                     return res.status(200).json({ message: 'Message seen acknowledgment saved successfully' });
                 } else {
                     console.error('❌ Failed to update message seen status');
-                    return res.status(404).json({ error: 'Message not found or not updated' });
+                    return res.status(500).json({ error: 'Failed to update message seen status in the database' });
                 }
             } catch (error) {
-                console.error('❌ Error updating seen status:', error);
-                return res.status(500).json({ error: 'Database error while updating seen status' });
+                console.error('❌ Error updating seen status in database:', error);
+                return res.status(500).json({ error: 'Failed to update seen status in the database' });
             }
         }
 
-        // 🔹 Handle POST request to send a message
+        // Handle POST request to send a message (with optional photo)
         if (req.method === 'POST') {
             const { username, chatWith, message, photo } = req.body;
 
@@ -120,18 +120,19 @@ module.exports = async function handler(req, res) {
             let photoPath = null;
 
             if (photo && photo.startsWith('data:image')) {
-                photoPath = photo;
+                photoPath = photo;  // Store the base64 string directly
             }
 
+            // Insert the message into the database
             const sql = `
-                INSERT INTO messages (username, chatwith, message, photo, timestamp, seen) 
-                VALUES (?, ?, ?, ?, NOW(), FALSE)
+                INSERT INTO messages (username, chatwith, message, photo, timestamp) 
+                VALUES ($1, $2, $3, $4, NOW());
             `;
 
             try {
-                const [result] = await pool.execute(sql, [usernameLower, chatWithLower, message || '', photoPath || null]);
+                const result = await pool.query(sql, [usernameLower, chatWithLower, message || '', photoPath || null]);
 
-                if (result.affectedRows > 0) {
+                if (result.rowCount > 0) {
                     console.log('✅ Message inserted successfully');
 
                     const messageData = {
@@ -150,13 +151,13 @@ module.exports = async function handler(req, res) {
                         return res.status(500).json({ error: 'Failed to publish message to Ably' });
                     }
 
-                    return res.status(201).json({ message: 'Message sent successfully' });
+                    return res.status(200).json({ message: 'Message sent successfully' });
                 } else {
                     console.error('❌ Message insertion failed');
                     return res.status(500).json({ error: 'Failed to insert message into the database' });
                 }
             } catch (error) {
-                console.error('❌ Error inserting message:', error);
+                console.error('❌ Error inserting message into database:', error);
                 return res.status(500).json({ error: 'Database error while inserting message' });
             }
         }
@@ -167,3 +168,4 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: 'Unexpected server error' });
     }
 };
+
