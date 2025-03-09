@@ -4,7 +4,7 @@ const { publishToAbly } = require('../utils/ably');
 // Set CORS headers
 const setCorsHeaders = (res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 };
 
@@ -68,12 +68,12 @@ module.exports = async function handler(req, res) {
             }
         }
 
-        // 🔹 Handle PUT request to mark a message as seen
-        if (req.method === 'PUT' && req.query.action === 'messageSeen') {
+        // 🔹 Handle PATCH request to update the 'seen' status
+        if (req.method === 'PATCH' && req.query.action === 'messageSeen') {
             const { messageId, seenBy } = req.body;
 
             if (!messageId || !seenBy) {
-                console.error('❌ Missing fields: messageId or seenBy');
+                console.error('❌ Missing required fields: messageId or seenBy');
                 return res.status(400).json({ error: 'Missing required fields: messageId or seenBy' });
             }
 
