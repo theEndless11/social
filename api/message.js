@@ -107,6 +107,7 @@ if (req.method === 'PUT') {
         return res.status(500).json({ error: 'Failed to update seen status in the database' });
     }
 }
+
         // Handle POST request to send a message (with optional photo)
         if (req.method === 'POST') {
             const { username, chatWith, message, photo } = req.body;
