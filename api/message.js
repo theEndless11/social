@@ -70,30 +70,33 @@ module.exports = async function handler(req, res) {
             }
         }
 if (req.method === 'PUT') {
-    const { id } = req.body;
+  const { id } = req.body;
 
-    if (!id || isNaN(parseInt(id))) {
-      return res.status(400).json({ error: 'Invalid or missing message ID' });
+  if (!id || isNaN(parseInt(id))) {
+    return res.status(400).json({ error: 'Invalid or missing message ID' });
+  }
+
+  const messageId = parseInt(id);
+
+  try {
+    const result = await pool.query(
+      'UPDATE messages SET seen = TRUE WHERE id = $1',
+      [messageId]
+    );
+
+    if (result.rowCount > 0) {
+      return res.status(200).json({ message: 'Message marked as seen' });
+    } else {
+      return res.status(404).json({ error: 'Message not found' });
     }
+  } catch (error) {
+    console.error('❌ Database error while updating seen status:', error);
+    return res.status(500).json({ error: 'Database error' });
+  }
+  // ✅ Add this
+  return;
+}
 
-    const messageId = parseInt(id);
-
-    try {
-      const result = await pool.query(
-        'UPDATE messages SET seen = TRUE WHERE id = $1',
-        [messageId]
-      );
-
-      if (result.rowCount > 0) {
-        return res.status(200).json({ message: 'Message marked as seen' });
-      } else {
-        return res.status(404).json({ error: 'Message not found' });
-      }
-    } catch (error) {
-      console.error('❌ Database error while updating seen status:', error);
-      return res.status(500).json({ error: 'Database error' });
-    }
-  } 
 
         // Handle POST request to send a message (with optional photo)
         if (req.method === 'POST') {
