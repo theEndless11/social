@@ -69,7 +69,6 @@ module.exports = async function handler(req, res) {
                 return res.status(500).json({ error: 'Failed to fetch messages from the database' });
             }
         }
-  // ✅ PUT: Mark message as seen
     if (req.method === 'PUT') {
       const { id } = req.body;
 
@@ -96,29 +95,24 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // ✅ POST: Send a new message
+    // ✅ Handle POST: send new message
     if (req.method === 'POST') {
-      const { username, chatWith, message, photo, timestamp, replyTo } = req.body;
+      const { username, chatWith, message, photo, timestamp } = req.body;
 
       console.log(`📩 POST request received: ${username} → ${chatWith}, Message: "${message}"`);
 
       if (!username || !chatWith || (!message && !photo)) {
-        return res.status(400).json({
-          error: 'Missing required fields: username, chatWith, and either message or photo',
-        });
+        console.error('❌ Missing fields in POST request');
+        return res.status(400).json({ error: 'Missing required fields: username, chatWith, message/photo' });
       }
 
       const usernameLower = username.toLowerCase();
       const chatWithLower = chatWith.toLowerCase();
-      let photoPath = null;
-
-      if (photo && photo.startsWith('data:image')) {
-        photoPath = photo; // base64-encoded string
-      }
+      const photoPath = photo?.startsWith('data:image') ? photo : null;
 
       const sql = `
-        INSERT INTO messages (username, chatWith, message, photo, timestamp, replyTo, seen)
-        VALUES ($1, $2, $3, $4, $5, $6, false)
+        INSERT INTO messages (username, chatwith, message, photo, timestamp)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING *;
       `;
 
@@ -129,12 +123,15 @@ module.exports = async function handler(req, res) {
           message || '',
           photoPath,
           timestamp || new Date().toISOString(),
-          replyTo || null,
         ]);
 
         const insertedMessage = result.rows[0];
 
-        // ✅ Publish to Ably
+        if (!insertedMessage) {
+          return res.status(500).json({ error: 'Failed to insert message into the database' });
+        }
+
+        // 🛰️ Send real message with ID back and publish to Ably
         try {
           console.log('📡 Publishing to Ably:', insertedMessage);
           await publishToAbly(`chat-${chatWithLower}-${usernameLower}`, 'newMessage', insertedMessage);
@@ -150,7 +147,6 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: 'Database error while inserting message' });
       }
     }
-
     // ✅ If method is not supported
     return res.status(405).json({ error: 'Method Not Allowed' });
   } catch (error) {
