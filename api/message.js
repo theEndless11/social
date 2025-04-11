@@ -95,58 +95,66 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // ✅ Handle POST: send new message
-    if (req.method === 'POST') {
-      const { username, chatWith, message, photo, timestamp } = req.body;
+// ✅ Handle POST: send new message
+if (req.method === 'POST') {
+  const { username, chatWith, message, photo, timestamp } = req.body;
 
-      console.log(`📩 POST request received: ${username} → ${chatWith}, Message: "${message}"`);
+  console.log(`📩 POST request received: ${username} → ${chatWith}, Message: "${message}"`);
 
-      if (!username || !chatWith || (!message && !photo)) {
-        console.error('❌ Missing fields in POST request');
-        return res.status(400).json({ error: 'Missing required fields: username, chatWith, message/photo' });
-      }
+  // Check for required fields
+  if (!username || !chatWith || (!message && !photo)) {
+    console.error('❌ Missing fields in POST request');
+    return res.status(400).json({ error: 'Missing required fields: username, chatWith, message/photo' });
+  }
 
-      const usernameLower = username.toLowerCase();
-      const chatWithLower = chatWith.toLowerCase();
-      const photoPath = photo?.startsWith('data:image') ? photo : null;
+  const usernameLower = username.toLowerCase();
+  const chatWithLower = chatWith.toLowerCase();
+  
+  // Check if the photo is a base64 string (image)
+  const photoPath = photo?.startsWith('data:image') ? photo : null;
 
-      const sql = `
-        INSERT INTO messages (username, chatwith, message, photo, timestamp)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING *;
-      `;
+  // SQL query to insert the message into the database
+  const sql = `
+    INSERT INTO messages (username, chatwith, message, photo, timestamp)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING *;
+  `;
 
-      try {
-        const result = await pool.query(sql, [
-          usernameLower,
-          chatWithLower,
-          message || '',
-          photoPath,
-          timestamp || new Date().toISOString(),
-        ]);
+  try {
+    // Insert the message into the database and return the inserted row
+    const result = await pool.query(sql, [
+      usernameLower,
+      chatWithLower,
+      message || '', // Default to empty string if no message
+      photoPath,
+      timestamp || new Date().toISOString(), // Use provided timestamp or current time
+    ]);
 
-        const insertedMessage = result.rows[0];
+    const insertedMessage = result.rows[0]; // Assuming the first row contains the inserted message
 
-        if (!insertedMessage) {
-          return res.status(500).json({ error: 'Failed to insert message into the database' });
-        }
-
-        // 🛰️ Send real message with ID back and publish to Ably
-        try {
-          console.log('📡 Publishing to Ably:', insertedMessage);
-          await publishToAbly(`chat-${chatWithLower}-${usernameLower}`, 'newMessage', insertedMessage);
-          console.log('✅ Message published to Ably');
-        } catch (error) {
-          console.error('❌ Error publishing to Ably:', error);
-          return res.status(500).json({ error: 'Failed to publish message to Ably' });
-        }
-
-        return res.status(201).json({ message: insertedMessage });
-      } catch (error) {
-        console.error('❌ Error inserting message into DB:', error);
-        return res.status(500).json({ error: 'Database error while inserting message' });
-      }
+    // If the insert failed
+    if (!insertedMessage) {
+      return res.status(500).json({ error: 'Failed to insert message into the database' });
     }
+
+    // 🛰️ Send real message with ID back and publish to Ably
+    try {
+      console.log('📡 Publishing to Ably:', insertedMessage);
+      await publishToAbly(`chat-${chatWithLower}-${usernameLower}`, 'newMessage', insertedMessage);
+      console.log('✅ Message published to Ably');
+    } catch (error) {
+      console.error('❌ Error publishing to Ably:', error);
+      return res.status(500).json({ error: 'Failed to publish message to Ably' });
+    }
+
+    // Return the full message with ID as the response
+    return res.status(201).json({ message: insertedMessage });
+  } catch (error) {
+    console.error('❌ Error inserting message into DB:', error);
+    return res.status(500).json({ error: 'Database error while inserting message' });
+  }
+}
+
     // ✅ If method is not supported
     return res.status(405).json({ error: 'Method Not Allowed' });
   } catch (error) {
