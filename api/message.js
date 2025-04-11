@@ -69,97 +69,94 @@ module.exports = async function handler(req, res) {
                 return res.status(500).json({ error: 'Failed to fetch messages from the database' });
             }
         }
-if (req.method === 'PUT') {
-  const { id } = req.body;
+  // ✅ PUT: Mark message as seen
+    if (req.method === 'PUT') {
+      const { id } = req.body;
 
-  if (!id || isNaN(parseInt(id))) {
-    return res.status(400).json({ error: 'Invalid or missing message ID' });
-  }
+      if (!id || isNaN(parseInt(id))) {
+        return res.status(400).json({ error: 'Invalid or missing message ID' });
+      }
 
-  const messageId = parseInt(id);
+      const messageId = parseInt(id);
 
-  try {
-    const result = await pool.query(
-      'UPDATE messages SET seen = TRUE WHERE id = $1',
-      [messageId]
-    );
+      try {
+        const result = await pool.query(
+          'UPDATE messages SET seen = TRUE WHERE id = $1',
+          [messageId]
+        );
 
-    if (result.rowCount > 0) {
-      return res.status(200).json({ message: 'Message marked as seen' });
-    } else {
-      return res.status(404).json({ error: 'Message not found' });
+        if (result.rowCount > 0) {
+          return res.status(200).json({ message: 'Message marked as seen' });
+        } else {
+          return res.status(404).json({ error: 'Message not found' });
+        }
+      } catch (error) {
+        console.error('❌ Database error while updating seen status:', error);
+        return res.status(500).json({ error: 'Database error' });
+      }
     }
-  } catch (error) {
-    console.error('❌ Database error while updating seen status:', error);
-    return res.status(500).json({ error: 'Database error' });
-  }
-  // ✅ Add this
-  return;
-}
 
+    // ✅ POST: Send a new message
+    if (req.method === 'POST') {
+      const { username, chatWith, message, photo, timestamp, replyTo } = req.body;
 
-        // Handle POST request to send a message (with optional photo)
-        if (req.method === 'POST') {
-            const { username, chatWith, message, photo } = req.body;
+      console.log(`📩 POST request received: ${username} → ${chatWith}, Message: "${message}"`);
 
-            console.log(`📩 POST request received: ${username} → ${chatWith}, Message: "${message}"`);
+      if (!username || !chatWith || (!message && !photo)) {
+        return res.status(400).json({
+          error: 'Missing required fields: username, chatWith, and either message or photo',
+        });
+      }
 
-            if (!username || !chatWith || (!message && !photo)) {
-                console.error('❌ Missing fields in POST request');
-                return res.status(400).json({ error: 'Missing required fields: username, chatWith, message/photo' });
-            }
+      const usernameLower = username.toLowerCase();
+      const chatWithLower = chatWith.toLowerCase();
+      let photoPath = null;
 
-            const usernameLower = username.toLowerCase();
-            const chatWithLower = chatWith.toLowerCase();
-            let photoPath = null;
+      if (photo && photo.startsWith('data:image')) {
+        photoPath = photo; // base64-encoded string
+      }
 
-            if (photo && photo.startsWith('data:image')) {
-                photoPath = photo;  // Store the base64 string directly
-            }
+      const sql = `
+        INSERT INTO messages (username, chatWith, message, photo, timestamp, replyTo, seen)
+        VALUES ($1, $2, $3, $4, $5, $6, false)
+        RETURNING *;
+      `;
 
-            // Insert the message into the database
-            const sql = `
-                INSERT INTO messages (username, chatwith, message, photo, timestamp) 
-                VALUES ($1, $2, $3, $4, NOW());
-            `;
+      try {
+        const result = await pool.query(sql, [
+          usernameLower,
+          chatWithLower,
+          message || '',
+          photoPath,
+          timestamp || new Date().toISOString(),
+          replyTo || null,
+        ]);
 
-            try {
-                const result = await pool.query(sql, [usernameLower, chatWithLower, message || '', photoPath || null]);
+        const insertedMessage = result.rows[0];
 
-                if (result.rowCount > 0) {
-                    console.log('✅ Message inserted successfully');
-
-                    const messageData = {
-                        username: usernameLower,
-                        chatWith: chatWithLower,
-                        message,
-                        photo: photoPath
-                    };
-
-                    try {
-                        console.log('📡 Publishing to Ably:', messageData);
-                        await publishToAbly(`chat-${chatWithLower}-${usernameLower}`, 'newMessage', messageData);
-                        console.log('✅ Message published to Ably');
-                    } catch (error) {
-                        console.error('❌ Error publishing to Ably:', error);
-                        return res.status(500).json({ error: 'Failed to publish message to Ably' });
-                    }
-
-                    return res.status(200).json({ message: 'Message sent successfully' });
-                } else {
-                    console.error('❌ Message insertion failed');
-                    return res.status(500).json({ error: 'Failed to insert message into the database' });
-                }
-            } catch (error) {
-                console.error('❌ Error inserting message into database:', error);
-                return res.status(500).json({ error: 'Database error while inserting message' });
-            }
+        // ✅ Publish to Ably
+        try {
+          console.log('📡 Publishing to Ably:', insertedMessage);
+          await publishToAbly(`chat-${chatWithLower}-${usernameLower}`, 'newMessage', insertedMessage);
+          console.log('✅ Message published to Ably');
+        } catch (error) {
+          console.error('❌ Error publishing to Ably:', error);
+          return res.status(500).json({ error: 'Failed to publish message to Ably' });
         }
 
-        return res.status(405).json({ error: 'Method Not Allowed' });
-    } catch (error) {
-        console.error('❌ Unexpected error:', error);
-        return res.status(500).json({ error: 'Unexpected server error' });
+        return res.status(201).json({ message: insertedMessage });
+      } catch (error) {
+        console.error('❌ Error inserting message into DB:', error);
+        return res.status(500).json({ error: 'Database error while inserting message' });
+      }
     }
+
+    // ✅ If method is not supported
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  } catch (error) {
+    console.error('❌ Unexpected server error:', error);
+    return res.status(500).json({ error: 'Unexpected server error' });
+  }
+
 };
 
